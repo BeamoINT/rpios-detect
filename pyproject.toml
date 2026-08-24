@@ -36,6 +36,7 @@ rpios-detect = "rpios_detect.cli:main"
 [project.urls]
 Homepage = "https://github.com/BeamoINT/rpios-detect"
 Issues = "https://github.com/BeamoINT/rpios-detect/issues"
+Changelog = "https://github.com/BeamoINT/rpios-detect/releases"
 
 [tool.setuptools.package-dir]
 "" = "src"

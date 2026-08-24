@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security / write-to-disk
+    url: https://github.com/BeamoINT/rpios-detect/security/advisories/new
+    about: If the tool wrote to a disk or ran a destructive command, report privately.
