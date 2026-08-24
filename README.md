@@ -1,5 +1,9 @@
 # rpios-detect
 
+[![CI](https://github.com/BeamoINT/rpios-detect/actions/workflows/ci.yml/badge.svg)](https://github.com/BeamoINT/rpios-detect/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+
 Read-only detector for a single question: **does this MicroSD card (or boot volume / image) contain Raspberry Pi OS?**
 
 Broadcom GPU firmware (`bootcode.bin`, `start.elf`, device trees, `config.txt`) means the card can boot a Raspberry Pi. Ubuntu, DietPi, Kali, LibreELEC, PINN/NOOBS, and custom images ship the same files. This tool looks for **official Raspberry Pi OS markers** — especially `issue.txt` produced by [pi-gen](https://github.com/RPi-Distro/pi-gen) — and reports a verdict, confidence, and the evidence that led there.
@@ -98,6 +102,10 @@ Do not promote firmware-only evidence to Raspberry Pi OS. If the choice is a cle
 ## Detection rules
 
 See [docs/DETECTION.md](docs/DETECTION.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## License
 
