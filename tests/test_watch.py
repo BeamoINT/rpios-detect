@@ -28,6 +28,7 @@ from rpios_detect.watch import (
     run_watch,
     wait_until_settled,
 )
+from rpios_detect.session import load_session
 
 
 def _disk(
@@ -651,4 +652,179 @@ def test_settle_timeout_returns_none() -> None:
         should_stop=lambda: False,
     )
     assert got is None
+
+
+def test_watch_persists_counts_and_last_verdict(tmp_path) -> None:
+    session = tmp_path / "session.json"
+    card = _disk()
+    frames = iter([[card], [card], []])
+
+    def discover(**_kwargs: object) -> list[DiscoveredDisk]:
+        try:
+            return next(frames)
+        except StopIteration:
+            return []
+
+    run_watch(
+        WatchConfig(
+            poll_interval=0,
+            settle_seconds=0,
+            mount_wait_seconds=0,
+            eject=True,
+            beep=False,
+            json_lines=True,
+            once=True,
+            persist=True,
+            session_path=session,
+        ),
+        discover=discover,
+        inspect=lambda disk, verbose=False: _result(
+            disk.device,
+            verdict=Verdict.RASPBERRY_PI_OS,
+            confidence=Confidence.CERTAIN,
+        ),
+        eject=lambda disk, discover=None: EjectResult(ok=True),
+        sleep=lambda _s: None,
+        stdout=StringIO(),
+        stderr=StringIO(),
+    )
+    loaded = load_session(session)
+    assert loaded is not None
+    assert loaded.checked == 1
+    assert loaded.raspberry_pi_os == 1
+    assert loaded.last is not None
+    assert loaded.last["kind"] == "raspberry_pi_os"
+    assert loaded.last["headline"] == "RASPBERRY PI OS"
+
+
+def test_watch_resume_continues_counts(tmp_path) -> None:
+    session = tmp_path / "session.json"
+    first = _disk(device="/dev/sdb")
+    second = _disk(device="/dev/sdc", size=16_000_000_000)
+
+    def run_one(disk: DiscoveredDisk, *, resume: bool) -> None:
+        frames = iter([[disk], [disk], []])
+
+        def discover(**_kwargs: object) -> list[DiscoveredDisk]:
+            try:
+                return next(frames)
+            except StopIteration:
+                return []
+
+        run_watch(
+            WatchConfig(
+                poll_interval=0,
+                settle_seconds=0,
+                mount_wait_seconds=0,
+                eject=True,
+                beep=False,
+                json_lines=True,
+                once=True,
+                persist=True,
+                resume=resume,
+                session_path=session,
+            ),
+            discover=discover,
+            inspect=lambda d, verbose=False: _result(d.device),
+            eject=lambda d, discover=None: EjectResult(ok=True),
+            sleep=lambda _s: None,
+            stdout=StringIO(),
+            stderr=StringIO(),
+        )
+
+    run_one(first, resume=False)
+    run_one(second, resume=True)
+    loaded = load_session(session)
+    assert loaded is not None
+    assert loaded.checked == 2
+    assert loaded.not_raspberry_pi_os == 2
+
+
+def test_new_session_without_cards_does_not_clobber_save(tmp_path) -> None:
+    session = tmp_path / "session.json"
+    from rpios_detect.session import save_session, snapshot_from_counts
+
+    save_session(
+        session,
+        snapshot_from_counts(
+            started_at="2026-08-24T00:00:00Z",
+            checked=9,
+            raspberry_pi_os=9,
+            not_raspberry_pi_os=0,
+            unsure=0,
+            last={"kind": "raspberry_pi_os", "headline": "RASPBERRY PI OS", "card_number": 9},
+            tool_version="0.2.0",
+        ),
+    )
+    polls = {"n": 0}
+
+    def should_stop() -> bool:
+        polls["n"] += 1
+        return polls["n"] >= 3
+
+    run_watch(
+        WatchConfig(
+            poll_interval=0,
+            settle_seconds=0,
+            mount_wait_seconds=0,
+            json_lines=True,
+            persist=True,
+            resume=False,
+            session_path=session,
+        ),
+        discover=lambda **_: [],
+        inspect=lambda disk, verbose=False: _result(disk.device),
+        eject=lambda disk, discover=None: EjectResult(ok=True),
+        sleep=lambda _s: None,
+        should_stop=should_stop,
+        stdout=StringIO(),
+        stderr=StringIO(),
+    )
+    loaded = load_session(session)
+    assert loaded is not None
+    assert loaded.checked == 9
+    assert loaded.raspberry_pi_os == 9
+
+
+def test_watch_saves_session_on_interrupt(tmp_path) -> None:
+    session = tmp_path / "session.json"
+    card = _disk()
+    frames = iter([[card], [card]])
+
+    def discover(**_kwargs: object) -> list[DiscoveredDisk]:
+        try:
+            return next(frames)
+        except StopIteration as exc:
+            raise KeyboardInterrupt from exc
+
+    code = run_watch(
+        WatchConfig(
+            poll_interval=0,
+            settle_seconds=0,
+            mount_wait_seconds=0,
+            eject=True,
+            beep=False,
+            json_lines=False,
+            once=False,
+            persist=True,
+            session_path=session,
+        ),
+        discover=discover,
+        inspect=lambda disk, verbose=False: _result(
+            disk.device,
+            verdict=Verdict.RASPBERRY_PI_OS,
+            confidence=Confidence.CERTAIN,
+        ),
+        eject=lambda disk, discover=None: EjectResult(ok=True),
+        sleep=lambda _s: None,
+        stdout=StringIO(),
+        stderr=StringIO(),
+    )
+    assert code == 0
+    loaded = load_session(session)
+    assert loaded is not None
+    assert loaded.checked == 1
+    assert loaded.raspberry_pi_os == 1
+
+
 

@@ -15,6 +15,7 @@ Never write to disks. Mounts must be read-only. Destructive argv (`dd`, `mkfs`, 
 - `src/rpios_detect/image.py` / `fat.py` — read-only `.img` parse.
 - `src/rpios_detect/watch.py` — continuous insert-scan-eject station (`rpiv` / `rpios-detect watch`).
 - `src/rpios_detect/ui.py` — flicker-free TTY station screen (redraw only on state change).
+- `src/rpios_detect/session.py` — saved station session for `rpiv --resume` / `--clear` / `--status`.
 - `src/rpios_detect/eject.py` — cross-platform unmount/eject after a verdict.
 - `docs/DETECTION.md` — human rules. Keep it in sync with the matcher table.
 

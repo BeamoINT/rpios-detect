@@ -46,8 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 RPIV_HELP = """rpiv — Raspberry Pi OS card station
 
-  rpiv                     start the insert-scan-eject station
-  rpiv watch [flags]       same (explicit)
+  rpiv                     start the insert-scan-eject station (new session)
+  rpiv --resume            continue the last station session
+  rpiv --status            show the saved session
+  rpiv --clear             delete the saved session
+  rpiv watch [flags]       same as rpiv (explicit)
   rpiv PATH [PATH ...]     one-shot inspect (same as rpios-detect)
   rpios-detect             inspect currently connected removable disks
 
@@ -57,7 +60,51 @@ Install (any machine with Python 3.11+):
   rpiv
 
 Station flags: --no-eject  --once  --json  --no-beep  --color/--no-color
+               --resume  --status  --clear  --session-file PATH
 """
+
+_WATCH_ONLY_FLAGS = {
+    "--resume",
+    "--clear",
+    "--status",
+    "--session-file",
+    "--no-eject",
+    "--once",
+    "--interval",
+    "--settle",
+    "--mount-wait",
+    "--beep",
+    "--no-beep",
+    "--color",
+    "--no-color",
+}
+_VALUE_FLAGS = {"--session-file", "--interval", "--settle", "--mount-wait"}
+
+
+def _rpiv_positionals(argv: list[str]) -> list[str]:
+    """Paths the user passed, not values belonging to station flags."""
+    leftover: list[str] = []
+    skip_next = False
+    for arg in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in _VALUE_FLAGS:
+            skip_next = True
+            continue
+        name, eq, _rest = arg.partition("=")
+        if eq and name in _VALUE_FLAGS:
+            continue
+        leftover.append(arg)
+    return [a for a in leftover if not a.startswith("-")]
+
+
+def _rpiv_is_station(argv: list[str]) -> bool:
+    for arg in argv:
+        name = arg.partition("=")[0]
+        if name in _WATCH_ONLY_FLAGS:
+            return True
+    return False
 
 
 def run_rpiv(argv: list[str] | None = None) -> int:
@@ -73,9 +120,11 @@ def run_rpiv(argv: list[str] | None = None) -> int:
         from rpios_detect.watch import run_watch_cli
 
         return run_watch_cli(argv[1:], prog="rpiv")
-    positionals = [a for a in argv if not a.startswith("-")]
     oneshot_flags = {"--all"}
-    if positionals or any(a in oneshot_flags or a.startswith("--all=") for a in argv):
+    if (not _rpiv_is_station(argv)) and (
+        _rpiv_positionals(argv)
+        or any(a in oneshot_flags or a.startswith("--all=") for a in argv)
+    ):
         return run(argv)
     from rpios_detect.watch import run_watch_cli
 

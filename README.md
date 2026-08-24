@@ -38,7 +38,10 @@ pipx install git+https://github.com/BeamoINT/rpios-detect.git
 ## Usage
 
 ```text
-rpiv                          # insert → scan → eject station
+rpiv                          # insert → scan → eject station (new session)
+rpiv --resume                 # continue the last session (counts + last verdict)
+rpiv --status                 # print the saved session
+rpiv --clear                  # delete the saved session
 rpiv /Volumes/bootfs          # one-shot inspect
 rpios-detect                  # inspect currently connected removable disks
 rpios-detect /dev/disk4       # one device (macOS)
@@ -69,6 +72,9 @@ Insert a card. The tool waits until the reader’s partition list is stable (and
 
 ```text
 rpios-detect watch                  # macOS, Linux, and Windows
+rpios-detect watch --resume         # continue the last saved session
+rpios-detect watch --status         # print the saved session
+rpios-detect watch --clear          # delete the saved session
 rpios-detect watch --no-eject       # identify only; you unmount/eject yourself
 rpios-detect watch --once           # one card, then exit with the usual exit code
 rpios-detect watch --json           # JSON lines: waiting/inserted/result/removed/stopped
@@ -76,6 +82,8 @@ rpios-detect watch --no-beep        # quiet (TTY beeps are on by default)
 ```
 
 Eject is an unmount / OS eject, not a write. Internal disks and the machine’s live boot device are never ejected. After eject, cheap USB readers often linger as a 0-byte “slot”; that leftover is ignored so the next blank card is not mistaken for the previous one. If a reader never drops off the list, pull the card and wait for “Waiting for a card…” before inserting the next.
+
+The station saves counts and the last verdict to a session file (macOS: `~/Library/Application Support/rpiv/session.json`; Linux: `~/.local/state/rpiv/session.json`; or `$RPIV_SESSION`). `rpiv` starts a new session; `rpiv --resume` continues the previous one. A new session does not overwrite the save until the first card is scanned.
 
 On Linux, `udisksctl` is preferred (no root). The fallback is `umount` + `eject`. On Windows, unformatted cards may have no drive letter — the tool still reports the verdict and asks you to remove the card.
 

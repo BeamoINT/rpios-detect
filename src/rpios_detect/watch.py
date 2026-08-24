@@ -13,6 +13,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TextIO
 
 from rpios_detect import __version__
@@ -28,6 +29,15 @@ from rpios_detect.models import (
 )
 from rpios_detect.probe import DiscoveredDisk, DiscoveredPartition
 from rpios_detect.scan import discover_disks, exit_code_for, inspect_disk
+from rpios_detect.session import (
+    SessionError,
+    clear_session,
+    default_session_path,
+    format_session_status,
+    load_session,
+    save_session,
+    snapshot_from_counts,
+)
 from rpios_detect.ui import StationScreen, StationState, render_station, stdout_supports_unicode
 
 DiscoverFn = Callable[..., list[DiscoveredDisk]]
@@ -49,6 +59,9 @@ class WatchConfig:
     once: bool = False
     verbose: bool = False
     color: bool = False
+    persist: bool = False
+    resume: bool = False
+    session_path: Path | None = None
 
 
 @dataclass
@@ -295,13 +308,16 @@ def format_watch_result(
     return "\n".join(lines) + "\n"
 
 
-def format_watch_summary(stats: WatchStats) -> str:
-    return (
+def format_watch_summary(stats: WatchStats, *, session_file: Path | None = None) -> str:
+    line = (
         f"Stopped. Checked {stats.checked} card(s): "
         f"{stats.raspberry_pi_os} Raspberry Pi OS, "
         f"{stats.not_raspberry_pi_os} not, "
         f"{stats.unsure} unsure.\n"
     )
+    if session_file is not None and stats.checked:
+        line += f"Session saved. rpiv --resume continues it.\n"
+    return line
 
 
 def _headline_for(kind: str, result: TargetResult) -> str:
@@ -396,11 +412,25 @@ def run_watch(
     err = stderr or sys.stderr
     palette = _Palette(cfg.color)
     stats = WatchStats()
+    last_card: dict[str, Any] | None = None
+    session_started_at = utc_now_iso()
+    session_file = cfg.session_path if cfg.session_path is not None else default_session_path()
+    if cfg.resume:
+        loaded = load_session(session_file)
+        if loaded is not None:
+            stats.checked = loaded.checked
+            stats.raspberry_pi_os = loaded.raspberry_pi_os
+            stats.not_raspberry_pi_os = loaded.not_raspberry_pi_os
+            stats.unsure = loaded.unsure
+            last_card = dict(loaded.last) if loaded.last else None
+            session_started_at = loaded.started_at or session_started_at
     pending_devices: dict[str, tuple[Any, ...]] = {}
     pending_contents: dict[tuple[Any, ...], float] = {}
     once_content: tuple[Any, ...] | None = None
     announced_wait = False
     interrupted = False
+    persist_errors: list[str] = []
+    saved = False
     interactive = (not cfg.json_lines) and bool(getattr(out, "isatty", lambda: False)())
     screen = StationScreen(out, interactive=interactive)
     ui = StationState(
@@ -441,16 +471,80 @@ def run_watch(
         out.write(text if text.endswith("\n") else text + "\n")
         out.flush()
 
+    def _persist() -> bool:
+        if not cfg.persist:
+            return False
+        if stats.checked == 0 and not cfg.resume:
+            return False
+        snapshot = snapshot_from_counts(
+            started_at=session_started_at,
+            checked=stats.checked,
+            raspberry_pi_os=stats.raspberry_pi_os,
+            not_raspberry_pi_os=stats.not_raspberry_pi_os,
+            unsure=stats.unsure,
+            last=last_card,
+            tool_version=__version__,
+        )
+        try:
+            save_session(session_file, snapshot)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            persist_errors.append(str(exc))
+            return False
+
+    def _paint_last_card(last: dict[str, Any]) -> None:
+        extras = []
+        os_name = last.get("os_name")
+        if os_name:
+            extras.append(str(os_name))
+        device = str(last.get("device") or "")
+        size = str(last.get("size") or "")
+        headline = str(last.get("headline") or "")
+        kind = str(last.get("kind") or "")
+        paint(
+            "verdict",
+            kind=kind,
+            card_number=int(last.get("card_number") or stats.checked),
+            device=device,
+            size=size,
+            headline=headline,
+            detail=f"{device}  {size}".strip(),
+            eject_note=str(last.get("eject_note") or "Resumed. Insert the next card when you are ready."),
+            extra_lines=extras,
+            last_kind=kind,
+            last_headline=headline,
+            last_device=device,
+        )
+
     if cfg.color:
         _enable_windows_ansi()
     done_code: int | None = None
     try:
         if interactive:
             screen.open()
-            paint("waiting")
+            if last_card:
+                _paint_last_card(last_card)
+            else:
+                paint("waiting")
         else:
             say(format_watch_banner(cfg))
-        emit("waiting", {})
+            if cfg.resume and stats.checked:
+                say(
+                    f"Resumed: {stats.checked} checked, "
+                    f"{stats.raspberry_pi_os} Raspberry Pi OS, "
+                    f"{stats.not_raspberry_pi_os} not, "
+                    f"{stats.unsure} unsure.\n"
+                )
+        emit(
+            "waiting",
+            {
+                "resumed": bool(cfg.resume),
+                "checked": stats.checked,
+                "raspberry_pi_os": stats.raspberry_pi_os,
+                "not_raspberry_pi_os": stats.not_raspberry_pi_os,
+                "unsure": stats.unsure,
+            },
+        )
 
         try:
             while not should_stop():
@@ -623,6 +717,16 @@ def run_watch(
                             palette=palette,
                         )
                     )
+                last_card = {
+                    "kind": kind,
+                    "headline": headline,
+                    "device": result.target,
+                    "size": _fmt_size(result.media.size_bytes),
+                    "card_number": stats.checked,
+                    "os_name": result.os_name,
+                    "eject_note": note,
+                }
+                _persist()
                 if cfg.beep:
                     _beep(err, 2 if kind == "raspberry_pi_os" else 1)
 
@@ -638,7 +742,10 @@ def run_watch(
                 say("")
     finally:
         screen.close()
-    say(format_watch_summary(stats))
+        saved = _persist()
+    say(format_watch_summary(stats, session_file=session_file if saved else None))
+    for msg in persist_errors:
+        print(f"warning: could not save session: {msg}", file=err)
     emit(
         "stopped",
         {
@@ -712,6 +819,27 @@ def build_watch_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include detection rule hits on the JSON result (rule_log)",
     )
+    session = parser.add_mutually_exclusive_group()
+    session.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue the last saved station session (counts and last verdict)",
+    )
+    session.add_argument(
+        "--clear",
+        action="store_true",
+        help="delete the saved station session and exit",
+    )
+    session.add_argument(
+        "--status",
+        action="store_true",
+        help="print the saved station session and exit",
+    )
+    parser.add_argument(
+        "--session-file",
+        metavar="PATH",
+        help="session JSON path (default: platform state dir, or $RPIV_SESSION)",
+    )
     return parser
 
 
@@ -742,6 +870,44 @@ def run_watch_cli(argv: Sequence[str] | None = None, *, prog: str = "rpios-detec
     if args.interval < 0 or args.settle < 0 or args.mount_wait < 0:
         print("error: intervals must be >= 0", file=sys.stderr)
         return EXIT_USAGE
+    session_file = Path(args.session_file).expanduser() if args.session_file else default_session_path()
+    if args.clear:
+        removed = clear_session(session_file)
+        if args.json:
+            json.dump({"event": "cleared", "path": str(session_file), "cleared": removed}, sys.stdout)
+            sys.stdout.write("\n")
+        elif removed:
+            print(f"Cleared session ({session_file})")
+        else:
+            print("No saved session.")
+        return 0
+    try:
+        loaded = load_session(session_file)
+    except SessionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        print("hint: rpiv --clear", file=sys.stderr)
+        return EXIT_USAGE
+    if args.status:
+        if loaded is None:
+            if args.json:
+                json.dump({"event": "status", "path": str(session_file), "session": None}, sys.stdout)
+                sys.stdout.write("\n")
+            else:
+                print("No saved session.")
+            return 0
+        if args.json:
+            json.dump({"event": "status", "path": str(session_file), "session": loaded.to_dict()}, sys.stdout)
+            sys.stdout.write("\n")
+        else:
+            sys.stdout.write(format_session_status(loaded, path=session_file))
+        return 0
+    if args.resume and loaded is None:
+        print(
+            f"error: no saved session at {session_file}",
+            file=sys.stderr,
+        )
+        print("hint: run rpiv, then rpiv --resume", file=sys.stderr)
+        return EXIT_USAGE
     cfg = WatchConfig(
         poll_interval=args.interval,
         settle_seconds=args.settle,
@@ -752,6 +918,9 @@ def run_watch_cli(argv: Sequence[str] | None = None, *, prog: str = "rpios-detec
         once=args.once,
         verbose=args.verbose,
         color=color,
+        persist=True,
+        resume=bool(args.resume),
+        session_path=session_file,
     )
     try:
         return run_watch(cfg)
