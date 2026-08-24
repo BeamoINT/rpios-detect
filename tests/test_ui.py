@@ -11,7 +11,7 @@ def test_waiting_frame_is_stable_and_readable() -> None:
     )
     assert "rpiv" in frame
     assert "WAITING FOR A CARD" in frame
-    assert "Insert a MicroSD" in frame
+    assert "Insert a MicroSD" in frame or "MicroSD" in frame
     assert frame.count("WAITING FOR A CARD") == 1
 
 

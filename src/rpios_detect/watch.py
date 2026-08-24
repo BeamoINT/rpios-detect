@@ -319,14 +319,14 @@ def _headline_for(kind: str, result: TargetResult) -> str:
 
 def _eject_note(eject: EjectResult | None, *, ejecting: bool) -> str:
     if not ejecting:
-        return "Left mounted. Remove the card, then insert the next one."
+        return "Left mounted. Insert the next card when you are ready."
     if eject is None:
-        return "Remove the card, then insert the next one."
+        return "Insert the next card when you are ready."
     if eject.skipped:
-        return f"Not ejected: {eject.reason}"
+        return f"Not ejected: {eject.reason}  Insert the next card when you are ready."
     if eject.ok:
-        return "Ejected. Pull the card, then insert the next one."
-    return f"Eject failed: {eject.reason}  Eject it in the OS, then insert the next."
+        return "Ejected. Result stays until you insert the next card."
+    return f"Eject failed: {eject.reason}  Result stays until you insert the next card."
 
 
 def _beep(stream: TextIO, count: int) -> None:
@@ -496,10 +496,9 @@ def run_watch(
                 ]
                 if not available:
                     if interactive:
-                        still_here = bool(pending_devices) or any(
-                            media_content_fingerprint(d) in pending_contents for d in found
-                        )
-                        if still_here and ui.phase in {"verdict", "error"}:
+                        # Keep YES/NO on screen after eject (and after the card
+                        # is physically gone). The next insert replaces it.
+                        if ui.phase in {"verdict", "error"}:
                             paint(ui.phase)
                         else:
                             paint("waiting")

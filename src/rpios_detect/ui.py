@@ -146,7 +146,7 @@ def render_station(state: StationState, *, width: int | None = None, height: int
         color = c.cyan
         inv = c.inv_cyan
         title = "WAITING FOR A CARD"
-        sub = state.hint or "Insert a MicroSD. Pull it when the verdict appears."
+        sub = state.hint or "Insert a MicroSD. The verdict stays until the next card."
         box = ["", inv + "  INSERT  " + c.reset, "", f"{c.bold}{title}{c.reset}", "", sub, ""]
     elif phase == "settling":
         color = c.yellow
@@ -212,7 +212,7 @@ def render_station(state: StationState, *, width: int | None = None, height: int
             "",
             f"card {state.card_number}   {sub}",
             "",
-            state.eject_note or "Remove the card, then insert the next one.",
+            state.eject_note or "Insert the next card when you are ready.",
         ]
         extras = [line for line in state.extra_lines[:3] if line]
         if extras:

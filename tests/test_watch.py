@@ -293,6 +293,102 @@ def test_tty_holds_verdict_while_card_stays() -> None:
     assert "YES" not in text or "NO" in text
 
 
+def test_tty_keeps_verdict_after_card_is_gone() -> None:
+    """YES/NO stays up after eject and unplug; waiting must not come back."""
+    card = _disk()
+    polls = {"n": 0}
+
+    def discover(**_kwargs: object) -> list[DiscoveredDisk]:
+        polls["n"] += 1
+        if polls["n"] == 1:
+            return []
+        if polls["n"] <= 4:
+            return [card]
+        return []
+
+    out = _TTY()
+    run_watch(
+        WatchConfig(
+            poll_interval=0,
+            settle_seconds=0,
+            mount_wait_seconds=0,
+            eject=True,
+            beep=False,
+            json_lines=False,
+            once=False,
+            color=False,
+        ),
+        discover=discover,
+        inspect=lambda disk, verbose=False: _result(
+            disk.device,
+            verdict=Verdict.RASPBERRY_PI_OS,
+            confidence=Confidence.CERTAIN,
+        ),
+        eject=lambda disk, discover=None: EjectResult(ok=True),
+        sleep=lambda _s: None,
+        should_stop=lambda: polls["n"] >= 10,
+        stdout=out,
+        stderr=StringIO(),
+    )
+    text = out.getvalue()
+    assert text.count("WAITING FOR A CARD") == 1
+    assert "RASPBERRY PI OS" in text
+    assert "YES" in text
+
+
+def test_tty_replaces_verdict_when_next_card_is_inserted() -> None:
+    first = _disk(device="/dev/sdb")
+    second = _disk(device="/dev/sdc", size=16_000_000_000)
+    polls = {"n": 0}
+
+    def discover(**_kwargs: object) -> list[DiscoveredDisk]:
+        polls["n"] += 1
+        if polls["n"] == 1:
+            return []
+        if polls["n"] <= 3:
+            return [first]
+        if polls["n"] <= 6:
+            return []
+        return [second]
+
+    def inspect(disk: DiscoveredDisk, verbose: bool = False) -> TargetResult:
+        if disk.device == "/dev/sdb":
+            return _result(
+                disk.device,
+                verdict=Verdict.RASPBERRY_PI_OS,
+                confidence=Confidence.CERTAIN,
+            )
+        return _result(disk.device)
+
+    out = _TTY()
+    run_watch(
+        WatchConfig(
+            poll_interval=0,
+            settle_seconds=0,
+            mount_wait_seconds=0,
+            eject=True,
+            beep=False,
+            json_lines=False,
+            once=False,
+            color=False,
+        ),
+        discover=discover,
+        inspect=inspect,
+        eject=lambda disk, discover=None: EjectResult(ok=True),
+        sleep=lambda _s: None,
+        should_stop=lambda: polls["n"] >= 12,
+        stdout=out,
+        stderr=StringIO(),
+    )
+    text = out.getvalue()
+    assert text.count("WAITING FOR A CARD") == 1
+    assert "YES" in text
+    assert "RASPBERRY PI OS" in text
+    assert "CARD DETECTED" in text or "SETTLE" in text or "SCANNING" in text
+    assert "NO" in text
+    assert "NOT RASPBERRY PI OS" in text
+
+
 def test_empty_reader_slot_is_not_a_card() -> None:
     slot = _disk(size=0)
     card = _disk(size=8_000_000_000)
