@@ -86,6 +86,12 @@ def test_resize_pending_needs_cmdline_and_trailing_space() -> None:
     assert no_space.first_boot_resize_pending is False
 
 
+def test_resize_unknown_without_disk_layout_warns() -> None:
+    d = detect_files(files({"issue.txt": ISSUE_STAGE5}))
+    assert d.first_boot_resize_pending is False
+    assert any("trailing free space is unknown" in w for w in d.warnings)
+
+
 def test_firmware_must_not_be_enough_even_with_classic_layout() -> None:
     d = detect_files(files(), layout=classic_layout())
     assert d.verdict != Verdict.RASPBERRY_PI_OS

@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from rpios_detect.models import PartitionTable
-from rpios_detect.probe_macos import is_macos_candidate, parse_diskutil_list, parse_size_to_bytes
+from rpios_detect.probe_macos import (
+    _macos_live_idents,
+    is_macos_candidate,
+    parse_diskutil_list,
+    parse_size_to_bytes,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "diskutil_list.txt"
 
@@ -31,3 +36,13 @@ def test_parse_real_diskutil_list() -> None:
 def test_parse_size() -> None:
     assert parse_size_to_bytes("62.5", "GB") == 62_500_000_000
     assert parse_size_to_bytes("536.9", "MB") == 536_900_000
+
+
+def test_live_idents_include_physical_store() -> None:
+    info = (
+        "   Part of Whole:             disk3\n"
+        "   APFS Container:            disk3\n"
+        "   APFS Physical Store:       disk0s2\n"
+    )
+    assert _macos_live_idents(info) == {"disk3", "disk0"}
+

@@ -76,7 +76,7 @@ If a smoking gun and a strong foreign marker both fire, the verdict is `other_pi
 
 ## Extra facts
 
-- `first_boot_resize_pending` when `cmdline.txt` contains `resize` **and** there is ≥ 1 GB trailing free space
+- `first_boot_resize_pending` when `cmdline.txt` contains `resize` **and** there is ≥ 1 GB trailing free space. Scanning only the boot directory cannot see trailing space; the tool warns and reports `false` unless you pass the whole disk.
 - Likely boards from kernel / DTB names (`kernel_2712.img` / `bcm2712*` → Pi 5, …)
 - Cloud-init files (`user-data`, `meta-data`, `network-config`) as a fact, not a verdict
 - Warning when rootfs was unreadable

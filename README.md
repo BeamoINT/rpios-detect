@@ -36,6 +36,28 @@ rpios-detect --verbose        # print each evidence rule hit/miss
 
 Human output is the default. `--json` prints the stable schema (field names will not be renamed).
 
+## Watch mode (insert → scan → eject → repeat)
+
+For a pile of MicroSD cards, start a station and leave it running until you press Ctrl+C:
+
+```text
+rpios-detect watch
+```
+
+Insert a card. The tool waits until the reader’s partition list is stable (and, if a FAT boot volume exists, until the OS mounts it), identifies whether it is Raspberry Pi OS, then **ejects** it so you can pull it and put in the next one. Blank / unformatted cards are the common “no” case: they count as **not Raspberry Pi OS** and are ejected the same way. Raspberry Pi OS cards have many boot files; firmware-only cards are reported as not Raspberry Pi OS, not as a yes.
+
+```text
+rpios-detect watch                  # macOS, Linux, and Windows
+rpios-detect watch --no-eject       # identify only; you unmount/eject yourself
+rpios-detect watch --once           # one card, then exit with the usual exit code
+rpios-detect watch --json           # JSON lines: waiting/inserted/result/removed/stopped
+rpios-detect watch --no-beep        # quiet (TTY beeps are on by default)
+```
+
+Eject is an unmount / OS eject, not a write. Internal disks and the machine’s live boot device are never ejected. After eject, cheap USB readers often linger as a 0-byte “slot”; that leftover is ignored so the next blank card is not mistaken for the previous one. If a reader never drops off the list, pull the card and wait for “Waiting for a card…” before inserting the next.
+
+On Linux, `udisksctl` is preferred (no root). The fallback is `umount` + `eject`. On Windows, unformatted cards may have no drive letter — the tool still reports the verdict and asks you to remove the card.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -60,7 +82,7 @@ If macOS denies access to `/Volumes/bootfs`, grant Full Disk Access to Terminal 
 ```json
 {
   "tool": "rpios-detect",
-  "tool_version": "0.1.0",
+  "tool_version": "0.2.0",
   "scanned_at": "2026-08-24T03:36:45Z",
   "host": { "os": "darwin", "arch": "arm64" },
   "results": [

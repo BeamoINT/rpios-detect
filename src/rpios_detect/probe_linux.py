@@ -12,6 +12,49 @@ from rpios_detect.probe import DiscoveredDisk, DiscoveredPartition
 from rpios_detect.safety import SafetyError, run_readonly
 
 
+def _is_root_disk(root_src: str | None, disk_path: str) -> bool:
+    """True when `root_src` is this disk or a partition of it.
+
+    `/dev/nvme0n1` must not match `/dev/nvme0n10p1`.
+    """
+    if not root_src or not disk_path:
+        return False
+    if root_src == disk_path:
+        return True
+    disk_name = Path(disk_path).name
+    root_name = Path(root_src).name
+    if root_name == disk_name:
+        return True
+    if not root_name.startswith(disk_name):
+        return False
+    rest = root_name[len(disk_name):]
+    if rest.startswith("p") and rest[1:].isdigit():
+        return True
+    if disk_name[-1:].isalpha() and rest.isdigit():
+        return True
+    return False
+
+
+
+_SYSTEM_MOUNTS = frozenset({"/", "/boot", "/boot/efi", "/boot/firmware", "/usr"})
+
+
+def _has_system_mount(node: dict) -> bool:
+    """True when this block device or a nested child is a live OS mount.
+
+    USB-boot Linux with LVM/LUKS often has findmnt SOURCE=/dev/mapper/... so
+    `_is_root_disk` cannot match the physical USB disk. Recursing lsblk
+    children still sees mountpoint="/".
+    """
+    mp = node.get("mountpoint") or ""
+    if mp in _SYSTEM_MOUNTS:
+        return True
+    for child in node.get("children") or []:
+        if _has_system_mount(child):
+            return True
+    return False
+
+
 def discover_linux(*, all_disks: bool = False) -> list[DiscoveredDisk]:
     payload = _lsblk_json()
     root_src = _root_source()
@@ -54,7 +97,7 @@ def discover_linux(*, all_disks: bool = False) -> list[DiscoveredDisk]:
             )
         disk_size = _as_int(dev.get("size"))
         trailing = (disk_size - used) if disk_size and used and disk_size > used else None
-        live = bool(root_src and (root_src == path or root_src.startswith(path)))
+        live = _is_root_disk(root_src, path) or _has_system_mount(dev)
         devices.append(
             DiscoveredDisk(
                 device=path,

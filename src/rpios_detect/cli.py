@@ -18,7 +18,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="rpios-detect",
         description=(
             "Read-only detector: does this MicroSD card (or boot volume/image) "
-            "contain Raspberry Pi OS? Firmware files alone are not enough."
+            "contain Raspberry Pi OS? Firmware files alone are not enough. "
+            "Use 'rpios-detect watch' for a continuous insert-scan-eject station."
         ),
     )
     parser.add_argument(
@@ -44,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "watch":
+        from rpios_detect.watch import run_watch_cli
+
+        return run_watch_cli(argv[1:])
     parser = build_parser()
     try:
         args = parser.parse_args(argv)

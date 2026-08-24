@@ -8,6 +8,7 @@ Firmware on a Pi boot partition is not Raspberry Pi OS. Keep that distinction.
 - A firmware-only fixture must not return `raspberry_pi_os`.
 - If the honest answer is uncertain, return `unknown`.
 - Never commit real SD images, secrets, or write-to-disk code.
+- Watch-mode tests must mock discover/eject. Do not auto-eject a real inserted card in CI.
 - `main` should stay releasable.
 
 ## Checks

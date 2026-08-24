@@ -194,7 +194,7 @@ class TargetResult:
 @dataclass
 class ScanReport:
     tool: str = TOOL_NAME
-    tool_version: str = "0.1.0"
+    tool_version: str = "0.2.0"
     scanned_at: str = ""
     host: HostInfo = field(default_factory=lambda: HostInfo(os="unknown", arch="unknown"))
     results: list[TargetResult] = field(default_factory=list)

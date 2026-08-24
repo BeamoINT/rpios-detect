@@ -34,6 +34,8 @@ _ALLOWED_NAMES = frozenset(
         "mount.fat",
         "mount.vfat",
         "mount.exfat",
+        "eject",
+        "udisksctl",
         "powershell",
         "powershell.exe",
         "pwsh",
@@ -48,8 +50,11 @@ _ALLOWED_NAMES = frozenset(
 )
 
 _DISKUTIL_SUBCOMMANDS = frozenset(
-    {"list", "info", "mount", "unmount", "unmountdisk"}
+    {"list", "info", "mount", "unmount", "unmountdisk", "eject"}
 )
+
+# Unmount / power-off only. Never format.
+_UDISKSCTL_SUBCOMMANDS = frozenset({"unmount", "power-off", "info", "dump", "status"})
 
 
 class SafetyError(RuntimeError):
@@ -75,6 +80,10 @@ def _ensure_allowed(argv: list[str]) -> None:
             raise SafetyError(f"diskutil subcommand not allowed: {sub!r}")
         if sub == "mount" and "readOnly" not in argv:
             raise SafetyError("diskutil mount without readOnly is refused")
+    if name == "udisksctl":
+        sub = argv[1].lower() if len(argv) > 1 else ""
+        if sub not in _UDISKSCTL_SUBCOMMANDS:
+            raise SafetyError(f"udisksctl subcommand not allowed: {sub!r}")
     if name in {"mount", "mount.fat", "mount.vfat", "mount.exfat"} or (
         name.startswith("mount") and name != "umount"
     ):

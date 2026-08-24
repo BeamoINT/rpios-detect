@@ -82,6 +82,12 @@ def detect(
     boards = likely_boards(boot)
     cloud = "cloud_init_present" in ids
     resize_pending = "cmdline_resize" in ids and "trailing_free_space" in ids
+    if "cmdline_resize" in ids and not resize_pending:
+        if layout is None or layout.trailing_free_bytes is None:
+            warnings.append(
+                "cmdline.txt requests first-boot resize, but trailing free space is unknown; "
+                "pass the whole disk (for example /dev/disk4) to check whether resize is still pending"
+            )
 
     os_name = _os_name(ids, boot, root)
     version_hint = _version_hint(root, image_date)

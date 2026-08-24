@@ -4,7 +4,7 @@ Read-only CLI that answers whether a MicroSD card, mounted boot volume, director
 
 ## Safety
 
-Never write to disks. Mounts must be read-only. Destructive argv (`dd`, `mkfs`, `diskutil erase*`, read-write `mount`) is refused in `safety.py` before exec. Do not weaken that guard. Do not treat internal system disks as SD cards unless the user passed that path explicitly.
+Never write to disks. Mounts must be read-only. Destructive argv (`dd`, `mkfs`, `diskutil erase*`, read-write `mount`) is refused in `safety.py` before exec. Do not weaken that guard. Do not treat internal system disks as SD cards unless the user passed that path explicitly. Watch-mode eject is unmount/eject only (identity re-check immediately before); never format, wipe, or `diskutil erase*`.
 
 ## Layout
 
@@ -13,6 +13,8 @@ Never write to disks. Mounts must be read-only. Destructive argv (`dd`, `mkfs`, 
 - `src/rpios_detect/snapshot.py` / `fs.py` — host-agnostic file view.
 - `src/rpios_detect/probe_*.py` — macOS diskutil / Linux lsblk / Windows.
 - `src/rpios_detect/image.py` / `fat.py` — read-only `.img` parse.
+- `src/rpios_detect/watch.py` — continuous insert-scan-eject station (`rpios-detect watch`).
+- `src/rpios_detect/eject.py` — cross-platform unmount/eject after a verdict.
 - `docs/DETECTION.md` — human rules. Keep it in sync with the matcher table.
 
 Raspberry Pi OS boot filenames are `issue.txt`, `cmdline.txt`, `config.txt`, `bootcode.bin`, `start.elf`, `kernel8.img`, `kernel_2712.img`, `LICENCE.broadcom`. Do not “fix” those to Debian generic names.

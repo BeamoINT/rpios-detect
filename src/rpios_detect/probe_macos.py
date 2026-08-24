@@ -135,12 +135,54 @@ def is_macos_candidate(disk: DiscoveredDisk, *, include_internal: bool = False) 
     return disk.removable or include_internal
 
 
+
+def _macos_whole_ident(token: str) -> str:
+    token = token.strip().removeprefix("/dev/")
+    matched = re.match(r"(disk\d+)", token)
+    return matched.group(1) if matched else token
+
+
+def _macos_live_idents(info_text: str | None = None) -> set[str]:
+    """Whole-disk ids that hold the live OS: APFS container *and* physical store.
+
+    `diskutil info /` reports Part of Whole as the synthesized container
+    (disk3). A USB-booted Mac's physical disk (disk4) is a different node;
+    ejecting that would unplug the running system.
+    """
+    if info_text is None:
+        try:
+            proc = run_readonly(["diskutil", "info", "/"])
+        except (SafetyError, FileNotFoundError, OSError):
+            return set()
+        if proc.returncode != 0:
+            return set()
+        info_text = proc.stdout or ""
+    idents: set[str] = set()
+    for line in info_text.splitlines():
+        if ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        key = key.strip()
+        val = val.strip()
+        if not val:
+            continue
+        token = val.split()[0]
+        if key in {"Part of Whole", "APFS Container"}:
+            idents.add(_macos_whole_ident(token))
+        elif "Physical Store" in key:
+            idents.add(_macos_whole_ident(token))
+    return {i for i in idents if i}
+
+
 def discover_macos(*, all_disks: bool = False) -> list[DiscoveredDisk]:
     text = _diskutil_list_text()
     disks = parse_diskutil_list(text)
+    live_idents = _macos_live_idents()
     out: list[DiscoveredDisk] = []
     for disk in disks:
         ident = Path(disk.device).name
+        if ident in live_idents:
+            disk.live_system = True
         info = _diskutil_info(ident)
         if info:
             disk.internal = info.get("internal", disk.internal)

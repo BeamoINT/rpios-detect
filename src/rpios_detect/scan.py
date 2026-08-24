@@ -359,6 +359,14 @@ def _result_from_detection(
     )
 
 
+def inspect_disk(disk: DiscoveredDisk, *, verbose: bool = False) -> TargetResult:
+    """Inspect one discovered disk and unmount anything this process mounted."""
+    try:
+        return inspect_discovered(disk, verbose=verbose)
+    finally:
+        _cleanup_mounts()
+
+
 def exit_code_for(results: list[TargetResult]) -> int:
     from rpios_detect.models import EXIT_AMBIGUOUS, EXIT_NO_MEDIA, EXIT_NOT_RPIOS, EXIT_RPIOS
 

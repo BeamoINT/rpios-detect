@@ -32,3 +32,21 @@ def test_allows_diskutil_list() -> None:
         pytest.skip("diskutil not present")
     assert proc.returncode == 0
     assert "/dev/disk" in (proc.stdout or "")
+
+
+def test_allows_eject_argv() -> None:
+    from rpios_detect.safety import _ensure_allowed
+
+    _ensure_allowed(["diskutil", "eject", "/dev/disk4"])
+    _ensure_allowed(["diskutil", "unmountDisk", "/dev/disk4"])
+    _ensure_allowed(["udisksctl", "unmount", "-b", "/dev/sdb1"])
+    _ensure_allowed(["udisksctl", "power-off", "-b", "/dev/sdb"])
+    _ensure_allowed(["eject", "/dev/sdb"])
+    _ensure_allowed(["umount", "/mnt/boot"])
+
+
+def test_refuses_udisksctl_format() -> None:
+    from rpios_detect.safety import SafetyError, _ensure_allowed
+
+    with pytest.raises(SafetyError):
+        _ensure_allowed(["udisksctl", "format", "-b", "/dev/sdb"])

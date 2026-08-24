@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -68,6 +69,11 @@ def discover_windows(*, all_disks: bool = False) -> list[DiscoveredDisk]:
                     readable=bool(letter) and Path(letter).exists(),
                 )
             )
+        system_drive = (os.environ.get("SystemDrive") or "C:").rstrip("\\").upper()
+        live = any(
+            (p.mountpoint or p.device or "").replace("/", "\\").upper().startswith(system_drive)
+            for p in parts
+        )
         disks.append(
             DiscoveredDisk(
                 device=str(item.get("device") or ""),
@@ -78,6 +84,7 @@ def discover_windows(*, all_disks: bool = False) -> list[DiscoveredDisk]:
                 removable=removable,
                 kind=MediaKind.REMOVABLE_DISK,
                 partitions=parts,
+                live_system=live,
                 already_mounted={p.device for p in parts if p.mountpoint},
             )
         )
