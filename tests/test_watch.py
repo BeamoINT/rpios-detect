@@ -251,6 +251,48 @@ def test_watch_help_via_cli() -> None:
     assert run(["watch", "--help"]) == 0
 
 
+class _TTY(StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_tty_holds_verdict_while_card_stays() -> None:
+    """After a verdict the station must not flip back to WAITING every poll."""
+    card = _disk()
+    polls = {"n": 0}
+
+    def discover(**_kwargs: object) -> list[DiscoveredDisk]:
+        polls["n"] += 1
+        if polls["n"] == 1:
+            return []
+        return [card]
+
+    out = _TTY()
+    run_watch(
+        WatchConfig(
+            poll_interval=0,
+            settle_seconds=0,
+            mount_wait_seconds=0,
+            eject=True,
+            beep=False,
+            json_lines=False,
+            once=False,
+            color=False,
+        ),
+        discover=discover,
+        inspect=lambda disk, verbose=False: _result(disk.device),
+        eject=lambda disk, discover=None: EjectResult(ok=True),
+        sleep=lambda _s: None,
+        should_stop=lambda: polls["n"] >= 8,
+        stdout=out,
+        stderr=StringIO(),
+    )
+    text = out.getvalue()
+    assert text.count("WAITING FOR A CARD") == 1
+    assert "NOT RASPBERRY PI OS" in text
+    assert "YES" not in text or "NO" in text
+
+
 def test_empty_reader_slot_is_not_a_card() -> None:
     slot = _disk(size=0)
     card = _disk(size=8_000_000_000)

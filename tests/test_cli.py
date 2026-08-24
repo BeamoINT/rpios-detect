@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from rpios_detect.cli import run
+from rpios_detect.cli import run, run_rpiv
 from rpios_detect.models import (
     EXIT_AMBIGUOUS,
     EXIT_NO_MEDIA,
@@ -68,3 +68,19 @@ def test_missing_target_is_usage() -> None:
 
 def test_exit_code_for_empty() -> None:
     assert exit_code_for([]) == EXIT_NO_MEDIA
+
+
+def test_rpiv_help() -> None:
+    assert run_rpiv(["--help"]) == 0
+
+
+def test_rpiv_version() -> None:
+    assert run_rpiv(["--version"]) == 0
+
+
+def test_rpiv_path_is_oneshot(tmp_path: Path, capsys) -> None:
+    boot = _write_boot(tmp_path, files({"issue.txt": ISSUE_STAGE5, "meta-data": META_RPIOS}))
+    code = run_rpiv(["--json", str(boot)])
+    payload = json.loads(capsys.readouterr().out)
+    assert code == EXIT_RPIOS
+    assert payload["results"][0]["verdict"] == "raspberry_pi_os"

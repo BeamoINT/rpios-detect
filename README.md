@@ -10,17 +10,36 @@ Broadcom GPU firmware (`bootcode.bin`, `start.elf`, device trees, `config.txt`) 
 
 ## Install
 
-Python 3.11 or newer. No third-party runtime dependencies.
+Python 3.11 or newer. No third-party runtime dependencies. This installs two commands: **`rpiv`** (the card station) and **`rpios-detect`** (one-shot inspect).
+
+One-liner (clone or not):
 
 ```bash
-python3 -m pip install -e .
-# or, isolated:
-pipx install .
+curl -fsSL https://raw.githubusercontent.com/BeamoINT/rpios-detect/main/install.sh | bash
+rpiv
 ```
+
+From a clone:
+
+```bash
+./install.sh
+```
+
+Or with pip / pipx:
+
+```bash
+python3 -m pip install git+https://github.com/BeamoINT/rpios-detect.git
+# recommended isolated install:
+pipx install git+https://github.com/BeamoINT/rpios-detect.git
+```
+
+`rpiv` with no arguments starts the insert → scan → eject station. Pass a path for a one-shot inspect (`rpiv /Volumes/bootfs`). `rpios-detect` still inspects currently connected removable disks. If `rpiv` is missing after install, add `~/.local/bin` to your PATH.
 
 ## Usage
 
 ```text
+rpiv                          # insert → scan → eject station
+rpiv /Volumes/bootfs          # one-shot inspect
 rpios-detect                  # inspect currently connected removable disks
 rpios-detect /dev/disk4       # one device (macOS)
 rpios-detect /dev/sda         # one device (Linux USB reader)
@@ -41,6 +60,8 @@ Human output is the default. `--json` prints the stable schema (field names will
 For a pile of MicroSD cards, start a station and leave it running until you press Ctrl+C:
 
 ```text
+rpiv
+# same:
 rpios-detect watch
 ```
 

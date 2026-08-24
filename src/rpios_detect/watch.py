@@ -28,6 +28,7 @@ from rpios_detect.models import (
 )
 from rpios_detect.probe import DiscoveredDisk, DiscoveredPartition
 from rpios_detect.scan import discover_disks, exit_code_for, inspect_disk
+from rpios_detect.ui import StationScreen, StationState, render_station, stdout_supports_unicode
 
 DiscoverFn = Callable[..., list[DiscoveredDisk]]
 InspectFn = Callable[..., TargetResult]
@@ -303,6 +304,31 @@ def format_watch_summary(stats: WatchStats) -> str:
     )
 
 
+def _headline_for(kind: str, result: TargetResult) -> str:
+    if kind == "raspberry_pi_os":
+        return "RASPBERRY PI OS"
+    if kind == "empty":
+        return "NOT RASPBERRY PI OS  (empty card)"
+    if kind == "unsure":
+        return "UNSURE"
+    guess = result.os_name or result.other_os_guess
+    if guess:
+        return f"NOT RASPBERRY PI OS  ({guess})"
+    return "NOT RASPBERRY PI OS"
+
+
+def _eject_note(eject: EjectResult | None, *, ejecting: bool) -> str:
+    if not ejecting:
+        return "Left mounted. Remove the card, then insert the next one."
+    if eject is None:
+        return "Remove the card, then insert the next one."
+    if eject.skipped:
+        return f"Not ejected: {eject.reason}"
+    if eject.ok:
+        return "Ejected. Pull the card, then insert the next one."
+    return f"Eject failed: {eject.reason}  Eject it in the OS, then insert the next."
+
+
 def _beep(stream: TextIO, count: int) -> None:
     try:
         stream.write("\a" * count)
@@ -375,6 +401,28 @@ def run_watch(
     once_content: tuple[Any, ...] | None = None
     announced_wait = False
     interrupted = False
+    interactive = (not cfg.json_lines) and bool(getattr(out, "isatty", lambda: False)())
+    screen = StationScreen(out, interactive=interactive)
+    ui = StationState(
+        version=__version__,
+        eject=cfg.eject,
+        color=cfg.color,
+        unicode=stdout_supports_unicode(out),
+    )
+
+    def paint(phase: str, **fields: object) -> None:
+        prev = ui.phase
+        if phase == "waiting" and "hint" not in fields and prev != "waiting":
+            ui.hint = ""
+        ui.phase = phase
+        for key, value in fields.items():
+            setattr(ui, key, value)
+        ui.checked = stats.checked
+        ui.yes = stats.raspberry_pi_os
+        ui.no = stats.not_raspberry_pi_os
+        ui.unsure = stats.unsure
+        if interactive:
+            screen.paint(render_station(ui))
 
     def _park(disk: DiscoveredDisk) -> None:
         pending_devices[disk.device] = media_fingerprint(disk)
@@ -395,138 +443,202 @@ def run_watch(
 
     if cfg.color:
         _enable_windows_ansi()
-    say(format_watch_banner(cfg))
-    emit("waiting", {})
-
+    done_code: int | None = None
     try:
-        while not should_stop():
-            try:
-                found = [d for d in discover() if is_watch_candidate(d)]
-            except Exception as exc:  # noqa: BLE001
-                say(f"discovery error: {exc}")
-                sleep(max(cfg.poll_interval, 1.0))
-                continue
-            by_dev = {d.device: d for d in found}
-            present_contents = {media_content_fingerprint(d) for d in found}
+        if interactive:
+            screen.open()
+            paint("waiting")
+        else:
+            say(format_watch_banner(cfg))
+        emit("waiting", {})
 
-            for dev, fp in list(pending_devices.items()):
-                disk = by_dev.get(dev)
-                if disk is None or is_new_media(fp, disk):
-                    emit("removed", {"device": dev})
-                    del pending_devices[dev]
-                    announced_wait = False
-
-            now = clock()
-            for d in found:
-                fp = media_content_fingerprint(d)
-                if fp in pending_contents:
-                    pending_contents[fp] = now
-            cooldown = max(3.0, cfg.settle_seconds)
-            for fp, seen in list(pending_contents.items()):
-                if fp not in present_contents and (now - seen) >= cooldown:
-                    del pending_contents[fp]
-
-            if cfg.once and stats.last_result is not None:
-                if once_content is None or once_content not in present_contents:
-                    return exit_code_for([stats.last_result])
-
-            available = [
-                d
-                for d in found
-                if d.device not in pending_devices
-                and media_content_fingerprint(d) not in pending_contents
-            ]
-            if not available:
-                if not announced_wait and stats.checked == 0:
-                    say("Waiting for a card…")
-                    announced_wait = True
-                sleep(cfg.poll_interval)
-                continue
-
-            disk = available[0]
-            say(
-                f"Card detected: {disk.device} ({_fmt_size(disk.size_bytes)}). "
-                "Waiting until it settles…"
-            )
-            emit("inserted", {"device": disk.device, "size_bytes": disk.size_bytes})
-            settled = wait_until_settled(
-                disk.device,
-                cfg,
-                discover=discover,
-                sleep=sleep,
-                clock=clock,
-                should_stop=should_stop,
-            )
-            if settled is None:
-                say("Card was removed before the scan finished.")
-                emit("removed", {"device": disk.device, "before_scan": True})
-                announced_wait = False
-                continue
-
-            try:
-                result = inspect(settled, verbose=cfg.verbose)
-            except TypeError:
-                result = inspect(settled)
-            except Exception as exc:  # noqa: BLE001
-                say(f"Scan failed: {exc}")
-                say("Leave the card mounted and check permissions, then retry.")
-                emit("error", {"device": settled.device, "error": str(exc)})
-                _park(settled)
-                sleep(cfg.poll_interval)
-                continue
-
-            kind = classify_card(result)
-            stats.record(kind)
-            stats.last_result = result
-
-            eject_res: EjectResult | None = None
-            if cfg.eject:
+        try:
+            while not should_stop():
                 try:
-                    eject_res = eject(settled, discover=discover)
-                except TypeError:
-                    eject_res = eject(settled)
+                    found = [d for d in discover() if is_watch_candidate(d)]
                 except Exception as exc:  # noqa: BLE001
-                    eject_res = EjectResult(ok=False, reason=str(exc))
+                    if interactive:
+                        paint("error", hint=str(exc))
+                    else:
+                        say(f"discovery error: {exc}")
+                    sleep(max(cfg.poll_interval, 1.0))
+                    continue
+                by_dev = {d.device: d for d in found}
+                present_contents = {media_content_fingerprint(d) for d in found}
 
-            if eject_res is None:
-                eject_state = "disabled"
-            elif eject_res.skipped:
-                eject_state = "skipped"
-            elif eject_res.ok:
-                eject_state = "ok"
-            else:
-                eject_state = "failed"
+                for dev, fp in list(pending_devices.items()):
+                    disk = by_dev.get(dev)
+                    if disk is None or is_new_media(fp, disk):
+                        emit("removed", {"device": dev})
+                        del pending_devices[dev]
+                        announced_wait = False
 
-            emit(
-                "result",
-                {
-                    "card": stats.checked,
-                    "kind": kind,
-                    "eject": eject_state,
-                    "result": result.to_dict(),
-                },
-            )
-            say(
-                format_watch_result(
-                    result,
-                    card_number=stats.checked,
-                    kind=kind,
-                    eject=eject_res if cfg.eject else None,
-                    palette=palette,
+                now = clock()
+                for d in found:
+                    fp = media_content_fingerprint(d)
+                    if fp in pending_contents:
+                        pending_contents[fp] = now
+                cooldown = max(3.0, cfg.settle_seconds)
+                for fp, seen in list(pending_contents.items()):
+                    if fp not in present_contents and (now - seen) >= cooldown:
+                        del pending_contents[fp]
+
+                if cfg.once and stats.last_result is not None:
+                    if once_content is None or once_content not in present_contents:
+                        done_code = exit_code_for([stats.last_result])
+                        break
+
+                available = [
+                    d
+                    for d in found
+                    if d.device not in pending_devices
+                    and media_content_fingerprint(d) not in pending_contents
+                ]
+                if not available:
+                    if interactive:
+                        still_here = bool(pending_devices) or any(
+                            media_content_fingerprint(d) in pending_contents for d in found
+                        )
+                        if still_here and ui.phase in {"verdict", "error"}:
+                            paint(ui.phase)
+                        else:
+                            paint("waiting")
+                    elif not announced_wait and stats.checked == 0:
+                        say("Waiting for a card…")
+                        announced_wait = True
+                    sleep(cfg.poll_interval)
+                    continue
+
+                disk = available[0]
+                size = _fmt_size(disk.size_bytes)
+                if interactive:
+                    paint(
+                        "settling",
+                        device=disk.device,
+                        size=size,
+                        hint="Waiting until the reader settles…",
+                    )
+                else:
+                    say(
+                        f"Card detected: {disk.device} ({size}). "
+                        "Waiting until it settles…"
+                    )
+                emit("inserted", {"device": disk.device, "size_bytes": disk.size_bytes})
+                settled = wait_until_settled(
+                    disk.device,
+                    cfg,
+                    discover=discover,
+                    sleep=sleep,
+                    clock=clock,
+                    should_stop=should_stop,
                 )
-            )
-            if cfg.beep:
-                _beep(err, 2 if kind == "raspberry_pi_os" else 1)
+                if settled is None:
+                    if interactive:
+                        paint("waiting", hint="Card was removed before the scan finished.")
+                    else:
+                        say("Card was removed before the scan finished.")
+                    emit("removed", {"device": disk.device, "before_scan": True})
+                    announced_wait = False
+                    continue
 
-            _park(settled)
-            if once_content is None:
-                once_content = media_content_fingerprint(settled)
-            announced_wait = False
-            if not cfg.once:
-                sleep(cfg.poll_interval)
-    except KeyboardInterrupt:
-        interrupted = True
-        say("")
+                if interactive:
+                    paint(
+                        "scanning",
+                        device=settled.device,
+                        size=_fmt_size(settled.size_bytes),
+                        hint="Read-only — nothing is written to the card.",
+                    )
+                try:
+                    result = inspect(settled, verbose=cfg.verbose)
+                except TypeError:
+                    result = inspect(settled)
+                except Exception as exc:  # noqa: BLE001
+                    if interactive:
+                        paint("error", hint=str(exc), device=settled.device)
+                    else:
+                        say(f"Scan failed: {exc}")
+                        say("Leave the card mounted and check permissions, then retry.")
+                    emit("error", {"device": settled.device, "error": str(exc)})
+                    _park(settled)
+                    sleep(cfg.poll_interval)
+                    continue
+
+                kind = classify_card(result)
+                stats.record(kind)
+                stats.last_result = result
+                headline = _headline_for(kind, result)
+
+                eject_res: EjectResult | None = None
+                if cfg.eject:
+                    try:
+                        eject_res = eject(settled, discover=discover)
+                    except TypeError:
+                        eject_res = eject(settled)
+                    except Exception as exc:  # noqa: BLE001
+                        eject_res = EjectResult(ok=False, reason=str(exc))
+
+                if eject_res is None:
+                    eject_state = "disabled"
+                elif eject_res.skipped:
+                    eject_state = "skipped"
+                elif eject_res.ok:
+                    eject_state = "ok"
+                else:
+                    eject_state = "failed"
+
+                emit(
+                    "result",
+                    {
+                        "card": stats.checked,
+                        "kind": kind,
+                        "eject": eject_state,
+                        "result": result.to_dict(),
+                    },
+                )
+                note = _eject_note(eject_res if cfg.eject else None, ejecting=cfg.eject)
+                extra = []
+                if result.os_name:
+                    extra.append(result.os_name)
+                if interactive:
+                    paint(
+                        "verdict",
+                        kind=kind,
+                        card_number=stats.checked,
+                        device=result.target,
+                        size=_fmt_size(result.media.size_bytes),
+                        headline=headline,
+                        detail=f"{result.target}  {_fmt_size(result.media.size_bytes)}",
+                        eject_note=note,
+                        extra_lines=extra,
+                        last_kind=kind,
+                        last_headline=headline,
+                        last_device=result.target,
+                    )
+                else:
+                    say(
+                        format_watch_result(
+                            result,
+                            card_number=stats.checked,
+                            kind=kind,
+                            eject=eject_res if cfg.eject else None,
+                            palette=palette,
+                        )
+                    )
+                if cfg.beep:
+                    _beep(err, 2 if kind == "raspberry_pi_os" else 1)
+
+                _park(settled)
+                if once_content is None:
+                    once_content = media_content_fingerprint(settled)
+                announced_wait = False
+                if not cfg.once:
+                    sleep(cfg.poll_interval)
+        except KeyboardInterrupt:
+            interrupted = True
+            if not interactive:
+                say("")
+    finally:
+        screen.close()
     say(format_watch_summary(stats))
     emit(
         "stopped",
@@ -539,9 +651,12 @@ def run_watch(
     )
     if interrupted:
         return 0
+    if done_code is not None:
+        return done_code
     if cfg.once and stats.last_result is not None:
         return exit_code_for([stats.last_result])
     return 0
+
 
 
 def build_watch_parser() -> argparse.ArgumentParser:
@@ -601,8 +716,9 @@ def build_watch_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_watch_cli(argv: Sequence[str] | None = None) -> int:
+def run_watch_cli(argv: Sequence[str] | None = None, *, prog: str = "rpios-detect watch") -> int:
     parser = build_watch_parser()
+    parser.prog = prog
     try:
         args = parser.parse_args(list(argv) if argv is not None else None)
     except SystemExit as exc:

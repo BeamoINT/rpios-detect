@@ -44,6 +44,48 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+RPIV_HELP = """rpiv — Raspberry Pi OS card station
+
+  rpiv                     start the insert-scan-eject station
+  rpiv watch [flags]       same (explicit)
+  rpiv PATH [PATH ...]     one-shot inspect (same as rpios-detect)
+  rpios-detect             inspect currently connected removable disks
+
+Install (any machine with Python 3.11+):
+
+  curl -fsSL https://raw.githubusercontent.com/BeamoINT/rpios-detect/main/install.sh | bash
+  rpiv
+
+Station flags: --no-eject  --once  --json  --no-beep  --color/--no-color
+"""
+
+
+def run_rpiv(argv: list[str] | None = None) -> int:
+    """Short command: `rpiv` runs the station; paths still one-shot inspect."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in {"-h", "--help"}:
+        print(RPIV_HELP)
+        return 0
+    if argv and argv[0] in {"-V", "--version"}:
+        print(f"rpiv {__version__}")
+        return 0
+    if argv and argv[0] == "watch":
+        from rpios_detect.watch import run_watch_cli
+
+        return run_watch_cli(argv[1:], prog="rpiv")
+    positionals = [a for a in argv if not a.startswith("-")]
+    oneshot_flags = {"--all"}
+    if positionals or any(a in oneshot_flags or a.startswith("--all=") for a in argv):
+        return run(argv)
+    from rpios_detect.watch import run_watch_cli
+
+    return run_watch_cli(argv, prog="rpiv")
+
+
+def rpiv_main(argv: list[str] | None = None) -> None:
+    raise SystemExit(run_rpiv(argv))
+
+
 def run(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "watch":
