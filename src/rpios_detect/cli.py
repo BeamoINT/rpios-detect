@@ -59,6 +59,8 @@ Install (any machine with Python 3.11+):
   curl -fsSL https://raw.githubusercontent.com/BeamoINT/rpios-detect/main/install.sh | bash
   rpiv
 
+Never sudo rpiv. It is a user-level command.
+
 Station flags: --no-eject  --once  --json  --no-beep  --color/--no-color
                --resume  --status  --clear  --session-file PATH
 """

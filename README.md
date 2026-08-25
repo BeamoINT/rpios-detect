@@ -35,6 +35,8 @@ pipx install git+https://github.com/BeamoINT/rpios-detect.git
 
 `rpiv` with no arguments starts the insert → scan → eject station. Pass a path for a one-shot inspect (`rpiv /Volumes/bootfs`). `rpios-detect` still inspects currently connected removable disks. If `rpiv` is missing after install, add `~/.local/bin` to your PATH.
 
+Never run `sudo rpiv`. It is a user-level command. sudo can make the launcher or Python unexecutable (`zsh: permission denied: rpiv`).
+
 ## Usage
 
 ```text

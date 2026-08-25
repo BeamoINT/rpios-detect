@@ -70,8 +70,11 @@ def test_exit_code_for_empty() -> None:
     assert exit_code_for([]) == EXIT_NO_MEDIA
 
 
-def test_rpiv_help() -> None:
+def test_rpiv_help(capsys) -> None:
     assert run_rpiv(["--help"]) == 0
+    text = capsys.readouterr().out
+    assert "rpiv --resume" in text
+    assert "Never sudo" in text
 
 
 def test_rpiv_version() -> None:
